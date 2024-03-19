@@ -2,9 +2,13 @@ name: Build libmodbus
 
 on:
     push:
-        branches: ["master"]
+        branches: ["master", "develop"]
     pull_request:
-        branches: ["master"]
+        branches: ["master", "develop"]
+
+env:
+    # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
+    BUILD_TYPE: Release
 
 jobs:
     build:
@@ -25,6 +29,16 @@ jobs:
         steps:
             - uses: actions/checkout@v3
             - name: Configure CMake
-              run:  cmake -B ${{github.workspace}}/build
+              run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
             - name: Build
-              run: cmake --build ${{github.workspace}}/build
+              run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+
+    build_cmake_win:
+        runs-on: windows-latest
+
+        steps:
+            - uses: actions/checkout@v3
+            - name: Configure CMake
+              run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+            - name: Build
+              run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
