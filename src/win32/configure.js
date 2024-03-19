@@ -61,7 +61,7 @@ function readVersion() {
         } else if (s.search(/^m4_define\(\[libmodbus_version_minor/) != -1) {
             verMinor = s.substr(s.indexOf(",") + 3, 1);
         } else if (s.search(/^m4_define\(\[libmodbus_version_micro/) != -1) {
-            verMicro = s.substr(s.indexOf(",") + 3, 1);
+            verMicro = s.substr(s.indexOf(",") + 3, 2);
         }
     }
     cf.Close();
