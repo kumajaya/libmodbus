@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.23)
 project(modbus)
 
+SET(MODBUS_BUILD_STATIC FALSE CACHE BOOL "Build static library version")
+
 if(NOT TARGET ${PROJECT_NAME})
   if(WIN32)
     message(STATUS "Running cscript")
@@ -14,8 +16,13 @@ if(NOT TARGET ${PROJECT_NAME})
       file(RENAME ${CMAKE_CURRENT_LIST_DIR}/src/win32/config.h ${CMAKE_CURRENT_LIST_DIR}/config.h)
     endif()
 
-    add_definitions(-DDLLBUILD -DWIN32_LEAN_AND_MEAN)
-    add_library(${PROJECT_NAME} SHARED)
+    add_definitions(-DWIN32_LEAN_AND_MEAN)
+    if (MODBUS_BUILD_STATIC)
+       add_library(${PROJECT_NAME} STATIC)
+    else()
+      add_definitions(-DMODBUS_DLLEXPORTS)
+      add_library(${PROJECT_NAME} SHARED)
+    endif()
     target_link_libraries(${PROJECT_NAME} ws2_32)
   else()
     message(STATUS "Running ./autogen.sh")
@@ -28,9 +35,15 @@ if(NOT TARGET ${PROJECT_NAME})
     endif()
 
     message(STATUS "Running ./configure --host=${CMAKE_SYSTEM_PROCESSOR}")
-    execute_process(COMMAND ./configure --host=${CMAKE_SYSTEM_PROCESSOR}
-                  WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
-                  RESULT_VARIABLE CONFIGURE_RESULT)
+    if (MODBUS_BUILD_STATIC)
+      execute_process(COMMAND ./configure --with-pic --enable-static --enable-shared=no --host=${CMAKE_SYSTEM_PROCESSOR}
+                    WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+                    RESULT_VARIABLE CONFIGURE_RESULT)
+    else()
+      execute_process(COMMAND ./configure --host=${CMAKE_SYSTEM_PROCESSOR}
+                    WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+                    RESULT_VARIABLE CONFIGURE_RESULT)
+    endif()
 
     if(NOT CONFIGURE_RESULT EQUAL "0")
       message(FATAL_ERROR "configure failed")
@@ -62,7 +75,11 @@ if(NOT TARGET ${PROJECT_NAME})
   else()
     set(package_name ${package_name}-x86)
   endif()
-  set(CPACK_PACKAGE_FILE_NAME ${package_name})
+  if (MODBUS_BUILD_STATIC)
+    set(CPACK_PACKAGE_FILE_NAME ${package_name}-static)
+  else()
+    set(CPACK_PACKAGE_FILE_NAME ${package_name})
+  endif()
   include(CPack)
 
   target_sources(${PROJECT_NAME} PRIVATE FILE_SET configuration TYPE HEADERS FILES config.h)
