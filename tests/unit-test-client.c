@@ -323,31 +323,81 @@ int main(int argc, char *argv[])
     /** FLOAT **/
     printf("1/4 Set/get float ABCD: ");
     modbus_set_float_abcd(UT_REAL, tab_rp_registers);
-    ASSERT_TRUE(is_memory_equal(tab_rp_registers, UT_IREAL_ABCD_SET, 4),
+    ASSERT_TRUE(is_memory_equal(tab_rp_registers, UT_IREAL_ABCD, 4),
                 "FAILED Set float ABCD");
-    real = modbus_get_float_abcd(UT_IREAL_ABCD_GET);
+    real = modbus_get_float_abcd(UT_IREAL_ABCD);
     ASSERT_TRUE(real == UT_REAL, "FAILED (%f != %f)\n", real, UT_REAL);
 
     printf("2/4 Set/get float DCBA: ");
     modbus_set_float_dcba(UT_REAL, tab_rp_registers);
-    ASSERT_TRUE(is_memory_equal(tab_rp_registers, UT_IREAL_DCBA_SET, 4),
+    ASSERT_TRUE(is_memory_equal(tab_rp_registers, UT_IREAL_DCBA, 4),
                 "FAILED Set float DCBA");
-    real = modbus_get_float_dcba(UT_IREAL_DCBA_GET);
+    real = modbus_get_float_dcba(UT_IREAL_DCBA);
     ASSERT_TRUE(real == UT_REAL, "FAILED (%f != %f)\n", real, UT_REAL);
 
     printf("3/4 Set/get float BADC: ");
     modbus_set_float_badc(UT_REAL, tab_rp_registers);
-    ASSERT_TRUE(is_memory_equal(tab_rp_registers, UT_IREAL_BADC_SET, 4),
+    ASSERT_TRUE(is_memory_equal(tab_rp_registers, UT_IREAL_BADC, 4),
                 "FAILED Set float BADC");
-    real = modbus_get_float_badc(UT_IREAL_BADC_GET);
+    real = modbus_get_float_badc(UT_IREAL_BADC);
     ASSERT_TRUE(real == UT_REAL, "FAILED (%f != %f)\n", real, UT_REAL);
 
     printf("4/4 Set/get float CDAB: ");
     modbus_set_float_cdab(UT_REAL, tab_rp_registers);
-    ASSERT_TRUE(is_memory_equal(tab_rp_registers, UT_IREAL_CDAB_SET, 4),
+    ASSERT_TRUE(is_memory_equal(tab_rp_registers, UT_IREAL_CDAB, 4),
                 "FAILED Set float CDAB");
-    real = modbus_get_float_cdab(UT_IREAL_CDAB_GET);
+    real = modbus_get_float_cdab(UT_IREAL_CDAB);
     ASSERT_TRUE(real == UT_REAL, "FAILED (%f != %f)\n", real, UT_REAL);
+
+    /* Regression: a negative float has its most significant byte >= 0x80.
+       On the get side the "a << 24" byte assembly overflows a signed int
+       (undefined behavior) unless done in unsigned width; on the set side the
+       float must be serialized with memcpy, not a float->uint32_t type-pun
+       (strict-aliasing UB). UT_REAL is positive (0x47F12000) and misses both
+       paths; -UT_REAL (0xC7F12000) exercises them. Run under
+       -fsanitize=undefined to catch the get-side UB. */
+    printf("Set/get negative float ABCD/DCBA/BADC/CDAB: ");
+    {
+        const uint16_t neg_abcd[] = {0xC7F1, 0x2000};
+        const uint16_t neg_dcba[] = {0x0020, 0xF1C7};
+        const uint16_t neg_badc[] = {0xF1C7, 0x0020};
+        const uint16_t neg_cdab[] = {0x2000, 0xC7F1};
+        uint16_t out[2];
+
+        modbus_set_float_abcd(-UT_REAL, out);
+        ASSERT_TRUE(is_memory_equal(out, neg_abcd, 4) &&
+                        modbus_get_float_abcd(neg_abcd) == -UT_REAL,
+                    "FAILED negative float ABCD\n");
+        modbus_set_float_dcba(-UT_REAL, out);
+        ASSERT_TRUE(is_memory_equal(out, neg_dcba, 4) &&
+                        modbus_get_float_dcba(neg_dcba) == -UT_REAL,
+                    "FAILED negative float DCBA\n");
+        modbus_set_float_badc(-UT_REAL, out);
+        ASSERT_TRUE(is_memory_equal(out, neg_badc, 4) &&
+                        modbus_get_float_badc(neg_badc) == -UT_REAL,
+                    "FAILED negative float BADC\n");
+        modbus_set_float_cdab(-UT_REAL, out);
+        ASSERT_TRUE(is_memory_equal(out, neg_cdab, 4) &&
+                        modbus_get_float_cdab(neg_cdab) == -UT_REAL,
+                    "FAILED negative float CDAB\n");
+    }
+
+    /* Regression: the MODBUS_GET_INT*_FROM_INT* macros must shift in unsigned
+       width. A high word/byte with the top bit set makes the old signed shift
+       overflow (undefined behavior) and, for INT16, produce a sign-incorrect
+       result. */
+    printf("Get signed int from registers INT16/INT32/INT64: ");
+    {
+        const uint8_t r8[] = {0xC7, 0xF1};
+        const uint16_t r16[] = {0xC7F1, 0x2000};
+        const uint16_t r64[] = {0xD200, 0x1234, 0x5678, 0x9ABC};
+
+        ASSERT_TRUE(MODBUS_GET_INT16_FROM_INT8(r8, 0) == (int16_t) 0xC7F1 &&
+                        MODBUS_GET_INT32_FROM_INT16(r16, 0) == (int32_t) 0xC7F12000 &&
+                        MODBUS_GET_INT64_FROM_INT16(r64, 0) ==
+                            (int64_t) 0xD200123456789ABCULL,
+                    "FAILED signed int conversion\n");
+    }
 
     printf("\nAt this point, error messages doesn't mean the test has failed\n");
 
@@ -401,11 +451,11 @@ int main(int argc, char *argv[])
     ASSERT_TRUE(rc == -1 && errno == EMBXILADD, "");
 
     rc = modbus_write_bits(ctx, 0, 1, tab_rp_bits);
-    printf("* modbus_write_coils (0): ");
+    printf("* modbus_write_bits (0): ");
     ASSERT_TRUE(rc == -1 && errno == EMBXILADD, "");
 
     rc = modbus_write_bits(ctx, UT_BITS_ADDRESS + UT_BITS_NB, UT_BITS_NB, tab_rp_bits);
-    printf("* modbus_write_coils (max): ");
+    printf("* modbus_write_bits (max): ");
     ASSERT_TRUE(rc == -1 && errno == EMBXILADD, "");
 
     rc = modbus_write_register(ctx, 0, tab_rp_registers[0]);
@@ -457,31 +507,31 @@ int main(int argc, char *argv[])
 
     rc = modbus_read_bits(ctx, UT_BITS_ADDRESS, MODBUS_MAX_READ_BITS + 1, tab_rp_bits);
     printf("* modbus_read_bits: ");
-    ASSERT_TRUE(rc == -1 && errno == EMBMDATA, "");
+    ASSERT_TRUE(rc == -1 && errno == EMBXILVAL, "");
 
     rc = modbus_read_input_bits(
         ctx, UT_INPUT_BITS_ADDRESS, MODBUS_MAX_READ_BITS + 1, tab_rp_bits);
     printf("* modbus_read_input_bits: ");
-    ASSERT_TRUE(rc == -1 && errno == EMBMDATA, "");
+    ASSERT_TRUE(rc == -1 && errno == EMBXILVAL, "");
 
     rc = modbus_read_registers(
         ctx, UT_REGISTERS_ADDRESS, MODBUS_MAX_READ_REGISTERS + 1, tab_rp_registers);
     printf("* modbus_read_registers: ");
-    ASSERT_TRUE(rc == -1 && errno == EMBMDATA, "");
+    ASSERT_TRUE(rc == -1 && errno == EMBXILVAL, "");
 
     rc = modbus_read_input_registers(
         ctx, UT_INPUT_REGISTERS_ADDRESS, MODBUS_MAX_READ_REGISTERS + 1, tab_rp_registers);
     printf("* modbus_read_input_registers: ");
-    ASSERT_TRUE(rc == -1 && errno == EMBMDATA, "");
+    ASSERT_TRUE(rc == -1 && errno == EMBXILVAL, "");
 
     rc = modbus_write_bits(ctx, UT_BITS_ADDRESS, MODBUS_MAX_WRITE_BITS + 1, tab_rp_bits);
     printf("* modbus_write_bits: ");
-    ASSERT_TRUE(rc == -1 && errno == EMBMDATA, "");
+    ASSERT_TRUE(rc == -1 && errno == EMBXILVAL, "");
 
     rc = modbus_write_registers(
         ctx, UT_REGISTERS_ADDRESS, MODBUS_MAX_WRITE_REGISTERS + 1, tab_rp_registers);
     printf("* modbus_write_registers: ");
-    ASSERT_TRUE(rc == -1 && errno == EMBMDATA, "");
+    ASSERT_TRUE(rc == -1 && errno == EMBXILVAL, "");
 
     /** SLAVE ADDRESS **/
     old_slave = modbus_get_slave(ctx);
@@ -499,7 +549,16 @@ int main(int argc, char *argv[])
 
     modbus_disable_quirks(ctx, MODBUS_QUIRK_MAX_SLAVE);
     rc = modbus_set_slave(ctx, old_slave);
-    ASSERT_TRUE(rc == 0, "Uanble to restore slave value")
+    ASSERT_TRUE(rc == 0, "Unable to restore slave value")
+
+    /** BAD USE OF REPLY FUNCTION **/
+    rc = modbus_write_bit(ctx, UT_BITS_ADDRESS_INVALID_REQUEST_LENGTH, ON);
+    printf("* modbus_write_bit (triggers invalid reply): ");
+    ASSERT_TRUE(rc == -1 && errno == EMBXILVAL, "");
+
+    rc = modbus_write_register(ctx, UT_REGISTERS_ADDRESS_SPECIAL, 0x42);
+    printf("* modbus_write_register (triggers invalid reply): ");
+    ASSERT_TRUE(rc == -1 && errno == EMBXILVAL, "");
 
     /** SLAVE REPLY **/
 
@@ -664,7 +723,7 @@ int main(int argc, char *argv[])
 
     // Invalid in TCP or RTU mode...
     modbus_t *invalid_ctx = modbus_new_tcp("1.2.3.4", 1502);
-    modbus_set_response_timeout(ctx, 0, 1);
+    modbus_set_response_timeout(invalid_ctx, 0, 1);
     rc = modbus_connect(invalid_ctx);
     printf("8/8 Connection timeout: ");
     ASSERT_TRUE(rc == -1 && errno == ETIMEDOUT, "");
